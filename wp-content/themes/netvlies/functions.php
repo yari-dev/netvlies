@@ -20,6 +20,7 @@
 			'public' => true,
 			'has_archive' => true,
 			'rewrite' => ['slug' => 'films'],
+			'show_in_rest' => true,
 			'supports' => ['title', 'editor', 'thumbnail'],
 		]
 	);
@@ -45,7 +46,6 @@ function create_film_taxonomies() {
 		'menu_name' => __('Genre', 'netvlies'),
 	];
 	
-
 	$args = [
 		'hierarchical' => true,
 		'labels' => $labels,
@@ -66,12 +66,113 @@ if ( ! defined( '_S_VERSION' ) ) {
 	define( '_S_VERSION', '1.0.0' );
 }
 
-//Initialiseer de benodigde styles/scripts
-function netvlies_films_enqueue() {
+function netvlies_films_enqueue_scripts() {
 	wp_enqueue_style( 'main-css', get_stylesheet_uri(), array(), _S_VERSION );
-}
-add_action( 'wp_enqueue_scripts', 'netvlies_films_enqueue' );
+    // Registreer het script voor de zoekfunctionaliteit
+    wp_register_script( 'search-films', get_template_directory_uri() . '/js/search-films.js', array( 'jquery' ), '', true );
 
+    // Lokaliseer het script met gegevens
+    $translation_array = array(
+        'nonce' => wp_create_nonce( 'wp_rest' ),
+        'rest_url' => esc_url_raw( rest_url( 'wp/v2/' ) )
+    );
+
+    // Voeg de gelokaliseerde gegevens toe aan het script
+    wp_localize_script( 'search-films', 'search_films_obj', $translation_array );
+
+    // Voer het script uit
+    wp_enqueue_script( 'search-films' );
+}
+
+add_action( 'wp_enqueue_scripts', 'netvlies_films_enqueue_scripts' );
+
+// Functie om de 'genre' query variabele toe te voegen aan de lijst van toegestane query vars
+function genre_query_var($query_vars) {
+    $query_vars[] = 'genre';
+    return $query_vars;
+}
+add_filter('query_vars', 'genre_query_var'); // Koppel de 'genre_query_var' functie aan de 'query_vars' filter
+
+// Functie om een nieuwe rewrite rule toe te voegen voor film genres
+function genre_rewrite_rule() {
+    // Voeg een rewrite regel toe die 'films/genre/' URL's afhandelt en doorstuurt naar de juiste 'index.php' met de 'genre' parameter
+    add_rewrite_rule('^films/genre/([^/]*)/?', 'index.php?post_type=film&genre=$matches[1]', 'top');
+}
+add_action('init', 'genre_rewrite_rule');
+
+
+//Endpoint om de films met JS te kunnen filteren
+function create_films_endpoint() {
+    register_rest_route('wp/v2', '/search_films/', array(
+        'methods' => 'GET',
+        'callback' => 'handle_film_search',
+        'permission_callback' => '__return_true',
+        'args' => array(
+            's' => array(
+                'required' => false,
+                'validate_callback' => function ($param, $request, $key) {
+                    return is_string($param);
+                },
+                'default' => '',
+            ),
+            'genre' => array(
+                'required' => false,
+                'default' => '',
+            ),
+            'page' => array(
+                'required' => false,
+                'validate_callback' => function ($param, $request, $key) {
+                    return is_numeric($param);
+                },
+                'default' => 1,
+            ),
+        ),
+    ));
+}
+add_action('rest_api_init', 'create_films_endpoint');
+
+//Functie om de films te filteren op zoekwoorden
+function handle_film_search($request) {
+    $args = array(
+        'post_type' => 'film',
+        'post_status' => 'publish',
+        'posts_per_page' => 20,
+        's' => $request['s'],
+        'paged' => $request['page'] ?: 1,
+    );
+
+    if (isset($request['genre']) && !empty($request['genre'])) {
+        $args['tax_query'] = array(
+            array(
+                'taxonomy' => 'genre',
+                'field' => 'slug',
+                'terms' => $request['genre'],
+            ),
+        );
+    }
+
+    // Voer de query uit
+    $query = new WP_Query($args);
+
+    // Verzamel film data
+    $films = array_map(function ($post) {
+        return array(
+            'id' => $post->ID,
+            'title' => get_the_title($post->ID),
+            'content' => apply_filters('the_content', $post->post_content),
+        );
+    }, $query->posts);
+
+    $total_pages = $query->max_num_pages;
+
+    // Stuur de films en het totaal aantal pagina's terug als response
+    $response = new WP_REST_Response([
+        'films' => $films,
+        'totalPages' => $total_pages,
+    ], 200);
+
+    return $response;
+}
 
 function update_genre_terms($api_key) {
     // Fetch genres van TMDb API
@@ -104,7 +205,6 @@ function update_genre_terms($api_key) {
     
     return $genre_mapping;
 }
-
 
 function fetch_films() {
 	//Persoonlijke API sleutel
@@ -180,7 +280,6 @@ function fetch_films() {
         }
     }
 }
-
 
 // Registreer een nieuwe cron schedule om de 10 minuten
 function film_cron_schedule($schedules) {

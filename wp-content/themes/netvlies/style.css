@@ -8,3 +8,35 @@ Version: 0.1
 License: GNU General Public License v2 or later
 License URI: http://gnu.org/license/gpl-2.0.html
 */
+
+/* Basis CSS om de films in een grid te zetten, wordt nog vervangen door SASS */
+
+#films-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); 
+	grid-gap: 1rem; 
+	margin: 0;
+	padding: 0;
+	list-style-type: none;
+  }
+  
+  #films-list li {
+	background: #fff; 
+	border: 1px solid #ddd;
+	margin: 0;
+	box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+	transition: transform 0.2s ease-in-out; 
+  }
+  
+  #films-list li:hover {
+	transform: scale(1.05);
+  }
+  
+  #films-list h3 {
+	margin: 0.5rem; 
+  }
+  
+  #films-list div {
+	padding: 0.5rem; 
+  }
+  
